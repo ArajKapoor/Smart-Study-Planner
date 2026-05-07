@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Study Planner</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-shapes">
+        <div class="shape shape-1"></div>
+        <div class="shape shape-2"></div>
+        <div class="shape shape-3"></div>
+    </div>
+
+    <main class="container">
+        <header>
+            <h1>Ultimate Study Planner</h1>
+            <p>Spaced Repetition • Active Recall • Adaptive Rescheduling</p>
+        </header>
+
+        <section class="glass-panel form-section">
+            <div class="grid-2">
+                <div class="input-group">
+                    <label>Days Left for Exam</label>
+                    <input type="number" id="daysLeft" min="1" max="100" value="7">
+                </div>
+                <div class="input-group">
+                    <label>Number of Holidays</label>
+                    <input type="number" id="numHolidays" min="0" max="50" value="0">
+                </div>
+                <div class="input-group">
+                    <label>Available Study Hours per Day</label>
+                    <input type="number" id="hoursPerDay" min="1" max="24" value="5">
+                </div>
+                <div class="input-group">
+                    <label>Preferred Study Time</label>
+                    <select id="studyTime">
+                        <option value="morning">Morning (Starts 8:00 AM)</option>
+                        <option value="afternoon">Afternoon (Starts 1:00 PM)</option>
+                        <option value="night">Night Owl (Starts 8:00 PM)</option>
+                        <option value="custom">Custom Start Time...</option>
+                    </select>
+                    <input type="time" id="customTimePicker" class="hidden" style="margin-top:0.5rem;" value="09:00">
+                </div>
+                <div class="input-group">
+                    <label>Time Management Technique</label>
+                    <select id="technique">
+                        <option value="pomodoro">Pomodoro (25m study / 5m break)</option>
+                        <option value="deepwork">Deep Work (50m study / 10m break)</option>
+                        <option value="custom">Custom Blocks (90m study / 20m break)</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Number of Subjects</label>
+                    <input type="number" id="numSubjects" min="1" max="30" value="2">
+                </div>
+            </div>
+
+            <!-- Fixed Commitments -->
+            <div class="subjects-header" style="margin-top: 1rem;">
+                <h3>Fixed Commitments (Classes, Labs)</h3>
+                <button id="addEventBtn" class="btn btn-sm">Add Event</button>
+            </div>
+            <div id="eventsContainer" class="subjects-container"></div>
+
+            <!-- Subjects -->
+            <div class="subjects-header" style="margin-top: 2rem;">
+                <h3>Subjects & Syllabus</h3>
+            </div>
+            <div id="subjectsContainer" class="subjects-container"></div>
+
+            <button id="generateBtn" class="btn btn-primary" style="margin-top: 2rem;">Generate Smart Schedule</button>
+            <div id="errorMessage" class="error-message hidden"></div>
+        </section>
+
+        <section id="resultsSection" class="glass-panel hidden">
+            <h2>Your Intelligent Study Plan</h2>
+            
+            <div id="paceBanner" class="pace-banner hidden"></div>
+            
+            <div id="loading" class="hidden">
+                <div class="spinner"></div>
+                <p>Mapping Spaced Repetition & Conflicts...</p>
+            </div>
+            
+            <div id="timelineContainer" class="timeline-container hidden">
+                <!-- Timeline goes here -->
+            </div>
+            
+            <div style="margin-top: 2rem; display: flex; gap: 1rem; justify-content: center;">
+                <button id="resetBtn" class="btn btn-outline hidden">Edit Preferences</button>
+                <button id="printBtn" class="btn btn-primary hidden">Print Schedule</button>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
