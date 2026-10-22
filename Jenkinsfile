@@ -6,11 +6,6 @@ pipeline {
         // Docker Hub repository namespace (Docker ID: arajkap07)
         DOCKER_HUB_REPO  = 'arajkap07/smart-study-planner'
         REGISTRY_CRED_ID = 'dockerhub-credentials'
-
-        // ── Image Tagging (populated dynamically in Checkout stage) ──
-        GIT_SHORT_SHA    = ''
-        IMAGE_TAG        = ''
-        IMAGE_LATEST     = ''
     }
 
     options {
