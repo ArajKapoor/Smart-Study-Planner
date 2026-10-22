@@ -1,0 +1,12 @@
+.git
+.gitignore
+README.md
+Dockerfile
+Jenkinsfile
+k8s/
+.vscode/
+.idea/
+*.md
+.dockerignore
+.env
+.env.*

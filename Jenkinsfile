@@ -1,0 +1,273 @@
+pipeline {
+    agent any
+
+    environment {
+        // ── Docker Hub Configuration ──
+        // Explicit configurable Docker Hub repository namespace.
+        // NOTE: Do NOT assume GitHub username is identical to Docker Hub username.
+        // Replace 'YOUR_DOCKERHUB_USERNAME' with your actual Docker Hub username or organization.
+        DOCKER_HUB_REPO  = 'YOUR_DOCKERHUB_USERNAME/smart-study-planner'
+        REGISTRY_CRED_ID = 'dockerhub-credentials'
+
+        // ── Image Tagging (populated dynamically in Checkout stage) ──
+        GIT_SHORT_SHA    = ''
+        IMAGE_TAG        = ''
+        IMAGE_LATEST     = ''
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    stages {
+
+        // =====================================================
+        // STAGE 1: Checkout
+        // =====================================================
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_SHORT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.IMAGE_TAG     = "${env.DOCKER_HUB_REPO}:${env.GIT_SHORT_SHA}"
+                    env.IMAGE_LATEST  = "${env.DOCKER_HUB_REPO}:latest"
+                    echo "Git Commit  : ${env.GIT_SHORT_SHA}"
+                    echo "Image Tag   : ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        // =====================================================
+        // STAGE 2: Build & Test
+        // =====================================================
+        stage('Build & Test') {
+            steps {
+                echo '── Validating HTML ──'
+                sh '''
+                    echo "Checking index.html exists and is non-empty..."
+                    test -s index.html || { echo "ERROR: index.html is missing or empty"; exit 1; }
+                '''
+
+                echo '── Validating CSS ──'
+                sh '''
+                    echo "Checking style.css exists and is non-empty..."
+                    test -s style.css || { echo "ERROR: style.css is missing or empty"; exit 1; }
+                '''
+
+                echo '── Validating JavaScript syntax ──'
+                sh '''
+                    echo "Checking script.js syntax with Node.js..."
+                    node --check script.js
+                '''
+
+                echo '── Running HTML structure tests ──'
+                sh '''
+                    echo "Verifying required HTML elements..."
+
+                    # Check DOCTYPE declaration
+                    grep -qi "<!DOCTYPE html>" index.html || { echo "ERROR: Missing DOCTYPE"; exit 1; }
+
+                    # Check essential meta tags
+                    grep -qi '<meta charset' index.html || { echo "ERROR: Missing charset meta tag"; exit 1; }
+                    grep -qi '<meta name="viewport"' index.html || { echo "ERROR: Missing viewport meta tag"; exit 1; }
+
+                    # Check that CSS and JS are linked
+                    grep -qi 'style.css' index.html || { echo "ERROR: style.css not linked in index.html"; exit 1; }
+                    grep -qi 'script.js' index.html || { echo "ERROR: script.js not linked in index.html"; exit 1; }
+
+                    # Check page has a title
+                    grep -qi '<title>' index.html || { echo "ERROR: Missing <title> tag"; exit 1; }
+
+                    echo "All HTML structure tests passed."
+                '''
+
+                echo '── Build & Test stage PASSED ──'
+            }
+        }
+
+        // =====================================================
+        // STAGE 3: Docker Build
+        // =====================================================
+        stage('Docker Build') {
+            steps {
+                echo "Building Docker image: ${env.IMAGE_TAG}"
+                sh """
+                    docker build -t ${env.IMAGE_TAG} -t ${env.IMAGE_LATEST} .
+                """
+
+                echo '── Running container smoke test ──'
+                sh '''
+                    # Start the container in background
+                    docker run -d --name smoke-test -p 8888:80 ${IMAGE_TAG}
+
+                    # Wait for Nginx to start
+                    sleep 3
+
+                    # Test that the health endpoint responds
+                    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888/healthz)
+                    echo "Health check HTTP status: ${HTTP_STATUS}"
+
+                    # Test that the main page responds
+                    PAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888/)
+                    echo "Main page HTTP status: ${PAGE_STATUS}"
+
+                    # Verify the page contains expected content
+                    curl -s http://localhost:8888/ | grep -q "Ultimate Study Planner" || {
+                        echo "ERROR: Page content verification failed"
+                        docker logs smoke-test
+                        docker rm -f smoke-test
+                        exit 1
+                    }
+                    echo "Content verification passed."
+
+                    # Clean up
+                    docker rm -f smoke-test
+
+                    if [ "${HTTP_STATUS}" != "200" ] || [ "${PAGE_STATUS}" != "200" ]; then
+                        echo "ERROR: Smoke test failed"
+                        exit 1
+                    fi
+
+                    echo "Container smoke test PASSED."
+                '''
+            }
+        }
+
+        // =====================================================
+        // STAGE 4: Docker Push
+        // =====================================================
+        stage('Docker Push') {
+            steps {
+                echo "Pushing ${env.IMAGE_TAG} and ${env.IMAGE_LATEST} to Docker Hub..."
+                withCredentials([usernamePassword(
+                    credentialsId: "${env.REGISTRY_CRED_ID}",
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+                        docker push ${IMAGE_TAG}
+                        docker push ${IMAGE_LATEST}
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        // =====================================================
+        // STAGE 5: Deploy to Kubernetes (Minikube)
+        // =====================================================
+        stage('Deploy to Kubernetes') {
+            steps {
+                echo "Deploying image ${env.IMAGE_TAG} to Minikube..."
+                sh """
+                    # Replace the image placeholder with the actual tagged image
+                    sed 's|IMAGE_PLACEHOLDER|${env.IMAGE_TAG}|g' k8s/deployment.yaml > k8s/deployment-live.yaml
+
+                    echo "── Applying Kubernetes manifests ──"
+                    kubectl apply -f k8s/deployment-live.yaml
+                    kubectl apply -f k8s/service.yaml
+
+                    echo "── Waiting for rollout to complete ──"
+                    kubectl rollout status deployment/smart-study-planner --timeout=120s
+
+                    # Clean up the generated file
+                    rm -f k8s/deployment-live.yaml
+                """
+            }
+        }
+
+        // =====================================================
+        // STAGE 6: Deployment Verification
+        // =====================================================
+        stage('Deployment Verification') {
+            steps {
+                echo '── Checking Deployment Status ──'
+                sh '''
+                    echo "=== Deployment ==="
+                    kubectl get deployment smart-study-planner -o wide
+
+                    echo ""
+                    echo "=== Pods ==="
+                    kubectl get pods -l app=smart-study-planner -o wide
+
+                    echo ""
+                    echo "=== Service ==="
+                    kubectl get service smart-study-planner-service -o wide
+
+                    echo ""
+                    echo "=== Pod Readiness ==="
+                    READY_PODS=$(kubectl get pods -l app=smart-study-planner --field-selector=status.phase=Running --no-headers | wc -l)
+                    echo "Ready pods: ${READY_PODS}"
+
+                    if [ "${READY_PODS}" -lt 1 ]; then
+                        echo "ERROR: No running pods found!"
+                        kubectl describe pods -l app=smart-study-planner
+                        exit 1
+                    fi
+                    echo "Pod readiness check PASSED."
+                '''
+
+                echo '── Running application accessibility test ──'
+                sh '''
+                    # Port-forward in background and test the application
+                    kubectl port-forward service/smart-study-planner-service 9090:80 &
+                    PF_PID=$!
+
+                    # Wait for port-forward to establish
+                    sleep 5
+
+                    # Test health endpoint
+                    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090/healthz)
+                    echo "Health endpoint status: ${HTTP_STATUS}"
+
+                    # Test main page
+                    PAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090/)
+                    echo "Main page status: ${PAGE_STATUS}"
+
+                    # Verify content
+                    curl -s http://localhost:9090/ | grep -q "Ultimate Study Planner" && echo "Content verification PASSED." || echo "WARNING: Content verification failed."
+
+                    # Clean up port-forward
+                    kill $PF_PID 2>/dev/null || true
+                    wait $PF_PID 2>/dev/null || true
+
+                    if [ "${HTTP_STATUS}" != "200" ] || [ "${PAGE_STATUS}" != "200" ]; then
+                        echo "ERROR: Application accessibility test FAILED"
+                        exit 1
+                    fi
+
+                    echo "Application accessibility test PASSED."
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo """
+╔══════════════════════════════════════════════════════════╗
+║           PIPELINE COMPLETED SUCCESSFULLY               ║
+║                                                          ║
+║  Image : ${env.IMAGE_TAG}                                ║
+║  App   : Smart Study Planner                             ║
+║  Access: minikube service smart-study-planner-service     ║
+╚══════════════════════════════════════════════════════════╝
+            """
+        }
+        failure {
+            echo """
+╔══════════════════════════════════════════════════════════╗
+║               PIPELINE FAILED                            ║
+║  Check the stage logs above for error details.           ║
+╚══════════════════════════════════════════════════════════╝
+            """
+        }
+        always {
+            // Clean up any leftover Docker containers from smoke tests
+            sh 'docker rm -f smoke-test 2>/dev/null || true'
+        }
+    }
+}
