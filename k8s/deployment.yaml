@@ -19,6 +19,9 @@ spec:
       labels:
         app: smart-study-planner
     spec:
+      # If using a private Docker Hub repository, uncomment the following block:
+      # imagePullSecrets:
+      #   - name: dockerhub-pull-secret
       containers:
         - name: smart-study-planner
           image: IMAGE_PLACEHOLDER

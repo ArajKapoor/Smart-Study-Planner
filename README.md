@@ -224,55 +224,43 @@ Install these from **Jenkins → Manage Jenkins → Plugin Manager → Available
 
 ### Create Docker Hub Credentials
 
-1. Go to **Jenkins → Manage Jenkins → Credentials → System → Global credentials**
+When Jenkins is installed (in Phase 4), create the credentials for Docker Hub access:
+
+1. Navigate to **Jenkins Dashboard → Manage Jenkins → Credentials → System → Global credentials (unrestricted)**
 2. Click **Add Credentials**
-3. Set:
-   - **Kind**: Username with password
-   - **Scope**: Global
-   - **Username**: Your Docker Hub username
-   - **Password**: Your Docker Hub password or access token
-   - **ID**: `dockerhub-credentials`
-   - **Description**: Docker Hub login for Smart Study Planner
-4. Click **Save**
+3. Configure the credential fields:
+   - **Kind**: `Username with password`
+   - **Scope**: `Global (Jenkins, nodes, items, all child items, etc.)`
+   - **Username**: `arajkap07` (Your Docker ID)
+   - **Password**: Your Docker Hub Personal Access Token (PAT) with `Read, Write, Delete` permissions (generate from **Docker Hub → Account Settings → Security → New Access Token**)
+   - **ID**: `dockerhub-credentials` (Must match `REGISTRY_CRED_ID` in `Jenkinsfile`)
+   - **Description**: `Docker Hub authentication for arajkap07/smart-study-planner`
+4. Click **Create**
 
 ### Create the Pipeline Job
 
 1. Go to **Jenkins Dashboard → New Item**
-2. Enter name: `Smart-Study-Planner`
-3. Select **Pipeline** and click OK
-4. Under **Pipeline** section:
+2. Enter item name: `Smart-Study-Planner`
+3. Select **Pipeline** and click **OK**
+4. Under the **Pipeline** configuration section:
    - **Definition**: Pipeline script from SCM
    - **SCM**: Git
    - **Repository URL**: `https://github.com/ArajKapoor/Smart-Study-Planner.git`
    - **Branch Specifier**: `*/main`
    - **Script Path**: `Jenkinsfile`
-5. Under **Build Triggers** (choose one):
-   - ✅ **GitHub hook trigger for GiTScm polling** (if webhook is configured)
-   - ✅ **Poll SCM**: `H/5 * * * *` (poll every 5 minutes as fallback)
+5. Under **Build Triggers**:
+   - ✅ **GitHub hook trigger for GITScm polling** (when GitHub webhook is configured)
+   - ✅ **Poll SCM**: `H/5 * * * *` (fallback periodic poll every 5 minutes)
 6. Click **Save**
 
-### Configure GitHub Webhook (Recommended)
+### Configure GitHub Webhook (Optional / Recommended)
 
-1. Go to your GitHub repository: **Settings → Webhooks → Add webhook**
+1. Navigate to GitHub repository: **Settings → Webhooks → Add webhook**
 2. Set:
-   - **Payload URL**: `http://<your-aws-public-ip>:8080/github-webhook/`
+   - **Payload URL**: `http://<your-jenkins-ip>:8080/github-webhook/`
    - **Content type**: `application/json`
-   - **Events**: Just the push event
-3. Ensure your AWS security group allows inbound traffic on port 8080 from GitHub's IP ranges
-
-> **Fallback**: If webhooks aren't accessible (e.g., no public IP), use **Poll SCM** with schedule `H/5 * * * *` to check for changes every 5 minutes.
-
-### Update Docker Hub Repository Name
-
-> **Important**: Do not assume your GitHub username is your Docker Hub username. Set your actual Docker Hub namespace before running the pipeline.
-
-In `Jenkinsfile`, update the `DOCKER_HUB_REPO` environment variable (around line 8) with your Docker Hub username/organization:
-
-```groovy
-DOCKER_HUB_REPO = 'YOUR_DOCKERHUB_USERNAME/smart-study-planner'
-```
-
-Also verify that the Jenkins credential with ID `dockerhub-credentials` (Username with password) contains your Docker Hub credentials (username and access token/password).
+   - **Events**: Just the `push` event
+3. Ensure the security group allows inbound traffic on port 8080.
 
 ---
 
@@ -282,13 +270,35 @@ Each pipeline run produces two Docker image tags:
 
 | Tag | Example | Purpose |
 |-----|---------|---------|
-| `<commit-sha>` | `YOUR_DOCKERHUB_USERNAME/smart-study-planner:e4d48ce` | Unique, immutable tag tied to a specific Git commit |
-| `latest` | `YOUR_DOCKERHUB_USERNAME/smart-study-planner:latest` | Convenience tag pointing to the most recent build |
+| `<commit-sha>` | `arajkap07/smart-study-planner:bc00fb5` | Unique, immutable tag tied to a specific Git commit SHA |
+| `latest` | `arajkap07/smart-study-planner:latest` | Convenience tag pointing to the most recent build |
 
 The commit SHA tag ensures that:
-- Every code change produces a **distinct image**
-- Kubernetes detects the new image and triggers a **rolling update**
-- You can **trace any deployed version** back to its exact source code
+- Every code change produces a **distinct, immutable image**
+- Kubernetes detects the tag change and triggers a **rolling update**
+- You can **trace any deployed version** back to its exact Git commit
+
+### Public vs. Private Repository & `imagePullSecrets`
+
+* **Public Repository (Default)**: If `arajkap07/smart-study-planner` is public on Docker Hub, Minikube and Kubernetes pull images anonymously without any cluster credentials.
+* **Private Repository**: If you configure the repository as private on Docker Hub, Kubernetes requires an `imagePullSecret` to pull images:
+  1. Create the secret in your Kubernetes cluster:
+     ```bash
+     kubectl create secret docker-registry dockerhub-pull-secret \
+       --docker-server=https://index.docker.io/v1/ \
+       --docker-username=arajkap07 \
+       --docker-password=<your-dockerhub-access-token> \
+       --docker-email=<your-email>
+     ```
+  2. Uncomment the `imagePullSecrets` block in `k8s/deployment.yaml`:
+     ```yaml
+     spec:
+       imagePullSecrets:
+         - name: dockerhub-pull-secret
+       containers:
+         - name: smart-study-planner
+           image: IMAGE_PLACEHOLDER
+     ```
 
 ---
 
@@ -413,7 +423,7 @@ git push origin main
 ```bash
 # 1. Check that a NEW image tag was pushed (different commit SHA)
 kubectl get deployment smart-study-planner -o jsonpath='{.spec.template.spec.containers[0].image}'
-# Should show the new commit SHA, e.g., YOUR_DOCKERHUB_USERNAME/smart-study-planner:a1b2c3d
+# Should show the new commit SHA, e.g., arajkap07/smart-study-planner:a1b2c3d
 
 # 2. Verify the rollout completed
 kubectl rollout status deployment/smart-study-planner

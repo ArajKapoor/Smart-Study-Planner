@@ -3,10 +3,8 @@ pipeline {
 
     environment {
         // ── Docker Hub Configuration ──
-        // Explicit configurable Docker Hub repository namespace.
-        // NOTE: Do NOT assume GitHub username is identical to Docker Hub username.
-        // Replace 'YOUR_DOCKERHUB_USERNAME' with your actual Docker Hub username or organization.
-        DOCKER_HUB_REPO  = 'YOUR_DOCKERHUB_USERNAME/smart-study-planner'
+        // Docker Hub repository namespace (Docker ID: arajkap07)
+        DOCKER_HUB_REPO  = 'arajkap07/smart-study-planner'
         REGISTRY_CRED_ID = 'dockerhub-credentials'
 
         // ── Image Tagging (populated dynamically in Checkout stage) ──
@@ -165,6 +163,12 @@ pipeline {
                 sh """
                     # Replace the image placeholder with the actual tagged image
                     sed 's|IMAGE_PLACEHOLDER|${env.IMAGE_TAG}|g' k8s/deployment.yaml > k8s/deployment-live.yaml
+
+                    # Verify no placeholder remains unresolved
+                    if grep -q "IMAGE_PLACEHOLDER" k8s/deployment-live.yaml; then
+                        echo "ERROR: Unresolved IMAGE_PLACEHOLDER in k8s/deployment-live.yaml"
+                        exit 1
+                    fi
 
                     echo "── Applying Kubernetes manifests ──"
                     kubectl apply -f k8s/deployment-live.yaml
