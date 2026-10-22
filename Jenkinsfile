@@ -2,8 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // ── Docker Hub Configuration ──
-        // Docker Hub repository namespace (Docker ID: arajkap07)
         DOCKER_HUB_REPO  = 'arajkap07/smart-study-planner'
         REGISTRY_CRED_ID = 'dockerhub-credentials'
     }
@@ -16,9 +14,6 @@ pipeline {
 
     stages {
 
-        // =====================================================
-        // STAGE 1: Checkout
-        // =====================================================
         stage('Checkout') {
             steps {
                 checkout scm
@@ -32,9 +27,6 @@ pipeline {
             }
         }
 
-        // =====================================================
-        // STAGE 2: Build & Test
-        // =====================================================
         stage('Build & Test') {
             steps {
                 echo '── Validating HTML ──'
@@ -59,18 +51,14 @@ pipeline {
                 sh '''
                     echo "Verifying required HTML elements..."
 
-                    # Check DOCTYPE declaration
                     grep -qi "<!DOCTYPE html>" index.html || { echo "ERROR: Missing DOCTYPE"; exit 1; }
 
-                    # Check essential meta tags
                     grep -qi '<meta charset' index.html || { echo "ERROR: Missing charset meta tag"; exit 1; }
                     grep -qi '<meta name="viewport"' index.html || { echo "ERROR: Missing viewport meta tag"; exit 1; }
 
-                    # Check that CSS and JS are linked
                     grep -qi 'style.css' index.html || { echo "ERROR: style.css not linked in index.html"; exit 1; }
                     grep -qi 'script.js' index.html || { echo "ERROR: script.js not linked in index.html"; exit 1; }
 
-                    # Check page has a title
                     grep -qi '<title>' index.html || { echo "ERROR: Missing <title> tag"; exit 1; }
 
                     echo "All HTML structure tests passed."
@@ -80,9 +68,6 @@ pipeline {
             }
         }
 
-        // =====================================================
-        // STAGE 3: Docker Build
-        // =====================================================
         stage('Docker Build') {
             steps {
                 echo "Building Docker image: ${env.IMAGE_TAG}"
@@ -92,21 +77,16 @@ pipeline {
 
                 echo '── Running container smoke test ──'
                 sh '''
-                    # Start the container in background
                     docker run -d --name smoke-test -p 8888:80 ${IMAGE_TAG}
 
-                    # Wait for Nginx to start
                     sleep 3
 
-                    # Test that the health endpoint responds
                     HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888/healthz)
                     echo "Health check HTTP status: ${HTTP_STATUS}"
 
-                    # Test that the main page responds
                     PAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888/)
                     echo "Main page HTTP status: ${PAGE_STATUS}"
 
-                    # Verify the page contains expected content
                     curl -s http://localhost:8888/ | grep -q "Ultimate Study Planner" || {
                         echo "ERROR: Page content verification failed"
                         docker logs smoke-test
@@ -115,7 +95,6 @@ pipeline {
                     }
                     echo "Content verification passed."
 
-                    # Clean up
                     docker rm -f smoke-test
 
                     if [ "${HTTP_STATUS}" != "200" ] || [ "${PAGE_STATUS}" != "200" ]; then
@@ -128,9 +107,6 @@ pipeline {
             }
         }
 
-        // =====================================================
-        // STAGE 4: Docker Push
-        // =====================================================
         stage('Docker Push') {
             steps {
                 echo "Pushing ${env.IMAGE_TAG} and ${env.IMAGE_LATEST} to Docker Hub..."
@@ -149,17 +125,12 @@ pipeline {
             }
         }
 
-        // =====================================================
-        // STAGE 5: Deploy to Kubernetes (Minikube)
-        // =====================================================
         stage('Deploy to Kubernetes') {
             steps {
                 echo "Deploying image ${env.IMAGE_TAG} to Minikube..."
                 sh """
-                    # Replace the image placeholder with the actual tagged image
                     sed 's|IMAGE_PLACEHOLDER|${env.IMAGE_TAG}|g' k8s/deployment.yaml > k8s/deployment-live.yaml
 
-                    # Verify no placeholder remains unresolved
                     if grep -q "IMAGE_PLACEHOLDER" k8s/deployment-live.yaml; then
                         echo "ERROR: Unresolved IMAGE_PLACEHOLDER in k8s/deployment-live.yaml"
                         exit 1
@@ -172,15 +143,11 @@ pipeline {
                     echo "── Waiting for rollout to complete ──"
                     kubectl rollout status deployment/smart-study-planner --timeout=120s
 
-                    # Clean up the generated file
                     rm -f k8s/deployment-live.yaml
                 """
             }
         }
 
-        // =====================================================
-        // STAGE 6: Deployment Verification
-        // =====================================================
         stage('Deployment Verification') {
             steps {
                 echo '── Checking Deployment Status ──'
@@ -211,25 +178,19 @@ pipeline {
 
                 echo '── Running application accessibility test ──'
                 sh '''
-                    # Port-forward in background and test the application
                     kubectl port-forward service/smart-study-planner-service 9090:80 &
                     PF_PID=$!
 
-                    # Wait for port-forward to establish
                     sleep 5
 
-                    # Test health endpoint
                     HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090/healthz)
                     echo "Health endpoint status: ${HTTP_STATUS}"
 
-                    # Test main page
                     PAGE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090/)
                     echo "Main page status: ${PAGE_STATUS}"
 
-                    # Verify content
                     curl -s http://localhost:9090/ | grep -q "Ultimate Study Planner" && echo "Content verification PASSED." || echo "WARNING: Content verification failed."
 
-                    # Clean up port-forward
                     kill $PF_PID 2>/dev/null || true
                     wait $PF_PID 2>/dev/null || true
 
@@ -265,7 +226,6 @@ pipeline {
             """
         }
         always {
-            // Clean up any leftover Docker containers from smoke tests
             sh 'docker rm -f smoke-test 2>/dev/null || true'
         }
     }
