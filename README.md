@@ -142,8 +142,8 @@ The Jenkins pipeline automates the complete build → test → containerize → 
 ## Prerequisites & AWS Jenkins Setup
 
 ### AWS EC2 Instance Requirements
-- **OS**: Ubuntu 20.04/22.04 LTS (recommended)
-- **Instance Type**: t2.medium or larger (Minikube needs ≥2 CPUs, ≥2GB RAM)
+- **OS**: Ubuntu 22.04 LTS or newer (recommended)
+- **Instance Type**: c7i-flex.large (free-tier eligible, 2 vCPU, 4 GB RAM) or t3.medium. Minikube needs ≥2 CPUs and ≥2 GB RAM, so t3.micro is too small
 - **Storage**: ≥20 GB
 - **Security Group**: Open ports 8080 (Jenkins UI), 22 (SSH)
 
@@ -156,14 +156,11 @@ Run these commands **on the AWS EC2 instance** via SSH:
 sudo apt update && sudo apt upgrade -y
 
 # 2. Install Java (Jenkins prerequisite)
-sudo apt install -y openjdk-17-jdk
+sudo apt install -y fontconfig openjdk-21-jre-headless
 
 # 3. Install Jenkins
-curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee \
-    /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
-    https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
-    /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key -o /usr/share/keyrings/jenkins-keyring.asc
+echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
 sudo apt update
 sudo apt install -y jenkins
 sudo systemctl enable --now jenkins
@@ -175,7 +172,6 @@ sudo usermod -aG docker jenkins
 sudo usermod -aG docker $USER
 
 # 5. Install Node.js (for JS syntax checking in pipeline)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
 # 6. Install kubectl
@@ -183,11 +179,11 @@ curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stabl
 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
 # 7. Install Minikube
-curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
 sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
-# 8. Start Minikube (as jenkins user or the appropriate user)
-sudo -u jenkins minikube start --driver=docker
+# 8. Start Minikube as the jenkins user (-H sets the jenkins home directory)
+sudo -u jenkins -H minikube start --driver=docker --cpus=2 --memory=2200mb
 
 # 9. Restart Jenkins to pick up Docker group membership
 sudo systemctl restart jenkins
@@ -198,10 +194,11 @@ sudo systemctl restart jenkins
 ### Verify Installations
 ```bash
 # Run these as the jenkins user
-sudo -u jenkins docker --version
-sudo -u jenkins kubectl version --client
-sudo -u jenkins minikube status
-sudo -u jenkins node --version
+sudo -u jenkins -H docker --version
+sudo -u jenkins -H kubectl version --client
+sudo -u jenkins -H minikube status
+sudo -u jenkins -H node --version
+sudo -u jenkins -H kubectl get nodes
 ```
 
 ---
